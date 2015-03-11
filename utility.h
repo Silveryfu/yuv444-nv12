@@ -1,6 +1,11 @@
 #ifndef UTILITY_H
 #define UTILITY_H
 
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include <stdio.h>
+#include <stdlib.h>
+
 typedef struct{
     int w;
     int h;
@@ -33,5 +38,7 @@ void free_pgm(PGM_IMG img);
 
 YUV_IMG rgb2yuv(PPM_IMG img_in);
 PPM_IMG yuv2rgb(YUV_IMG img_in);
+
+__host__ void queryDevice();
 
 #endif
