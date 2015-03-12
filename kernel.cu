@@ -44,6 +44,8 @@ __global__ void rgb2yuv_cuda(unsigned char * img_r,unsigned char * img_g,unsigne
 
 int main()
 {
+	clock_t start, end;
+
 	unsigned char* host_img_y, *host_img_u, *host_img_v;
 	unsigned char* device_img_y_in, *device_img_u_in, *device_img_v_in;
 	unsigned char* device_img_y_out, *device_img_u_out, *device_img_v_out;
@@ -65,13 +67,16 @@ int main()
 
 	queryDevice();
 
-	// Begin of conversion and subsampling
 	img_in = read_ppm("test1.ppm");
 	img_yuv = rgb2yuv(img_in);
+
+	// Begin of conversion and subsampling
+	start = clock();
 
 	host_img_y = img_yuv.img_y;
 	host_img_u = img_yuv.img_u;
 	host_img_v = img_yuv.img_v;
+
 
 	cudaMalloc((void **) &device_img_y_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
 	cudaMalloc((void **) &device_img_u_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
@@ -89,11 +94,28 @@ int main()
 	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
 	//cudaMalloc();
 
+	cudaDeviceSynchronize();
+
+	cudaMemcpy(host_img_y, device_img_y_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+	cudaMemcpy(host_img_u, device_img_u_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+	cudaMemcpy(host_img_v, device_img_v_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+
+	end = clock();
+	printf("\nTime taken is: %d seconds %d milliseconds.\n", (end - start)/(CLOCKS_PER_SEC), (end - start)*1000/(CLOCKS_PER_SEC)%1000);
+	// End of conversion and subsampling
+
 	img_in = yuv2rgb(img_yuv);
 	write_ppm(img_in, "test_out.ppm");
 
+	cudaFree(device_img_y_in);
+	cudaFree(device_img_u_in);
+	cudaFree(device_img_v_in);
+	cudaFree(device_img_y_out);
+	cudaFree(device_img_u_out);
+	cudaFree(device_img_v_out);
+
 	free_ppm(img_in);
-	// End of conversion and subsampling
+
 
 	printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
 		c[0], c[1], c[2], c[3], c[4]);
