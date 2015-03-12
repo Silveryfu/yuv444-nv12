@@ -1,6 +1,24 @@
 #include "utility.h"
+#define BLOCK_SIZE 512
 
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+
+//  Subsampling from YUV444 to NV12
+//	YUV 4:2:0 image with a plane of 8 bit Y samples followed 
+//	by an interleaved U/V plane containing 8 bit 2x2 subsampled 
+//	colour difference samples.
+// 						Horizontal	Vertical
+//		Y	   Sample Period	1	1
+//		U (Cb) Sample Period	2	2
+//		V (Cr) Sample Period	2	2
+
+__global__ void yuv2nv(unsigned char * y_in,unsigned char * u_in,unsigned char * v_in, 
+	unsigned char * y_out,unsigned char * u_out,unsigned char * v_out, int imgSize){
+		
+		
+
+
+}
 
 //@@ CUDA kernel
 __global__ void addKernel(int *c, const int *a, const int *b)
@@ -24,22 +42,14 @@ __global__ void rgb2yuv_cuda(unsigned char * img_r,unsigned char * img_g,unsigne
     }
 }
 
-//  Subsampling from YUV444 to NV12
-//	YUV 4:2:0 image with a plane of 8 bit Y samples followed 
-//	by an interleaved U/V plane containing 8 bit 2x2 subsampled 
-//	colour difference samples.
-// 						Horizontal	Vertical
-//		Y	   Sample Period	1	1
-//		U (Cb) Sample Period	2	2
-//		V (Cr) Sample Period	2	2
-
-__global__ void yuv2nv(){
-	
-}
-
 int main()
 {
+	unsigned char* host_img_y, *host_img_u, *host_img_v;
+	unsigned char* device_img_y_in, *device_img_u_in, *device_img_v_in;
+	unsigned char* device_img_y_out, *device_img_u_out, *device_img_v_out;
+
 	PPM_IMG img_in;
+	YUV_IMG img_yuv;
 
 	const int arraySize = 5;
 	const int a[arraySize] = { 1, 2, 3, 4, 5 };
@@ -54,11 +64,33 @@ int main()
 	}
 
 	queryDevice();
+
 	// Begin of conversion and subsampling
-
-
 	img_in = read_ppm("test1.ppm");
+	img_yuv = rgb2yuv(img_in);
 
+	host_img_y = img_yuv.img_y;
+	host_img_u = img_yuv.img_u;
+	host_img_v = img_yuv.img_v;
+
+	cudaMalloc((void **) &device_img_y_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+	cudaMalloc((void **) &device_img_u_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+	cudaMalloc((void **) &device_img_v_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+
+	cudaMalloc((void **) &device_img_y_out, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+	cudaMalloc((void **) &device_img_u_out, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+	cudaMalloc((void **) &device_img_v_out, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+
+	cudaMemcpy(device_img_y_in, host_img_y, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice);
+	cudaMemcpy(device_img_u_in, host_img_u, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice);
+	cudaMemcpy(device_img_v_in, host_img_v, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice);
+
+	dim3 dimGrid((img_yuv.w - 1)/BLOCK_SIZE + 1, (img_yuv.h - 1)/BLOCK_SIZE + 1, 1);
+	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
+	//cudaMalloc();
+
+	img_in = yuv2rgb(img_yuv);
+	write_ppm(img_in, "test_out.ppm");
 
 	free_ppm(img_in);
 	// End of conversion and subsampling
