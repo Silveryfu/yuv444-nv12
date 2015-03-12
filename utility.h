@@ -3,6 +3,7 @@
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include <cuda.h>
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,5 +44,6 @@ PPM_IMG yuv2rgb(YUV_IMG img_in);
 unsigned char clip_rgb(int x);
 
 __host__ void queryDevice();
+__host__ bool myCudaCheck(cudaError_t);
 
 #endif

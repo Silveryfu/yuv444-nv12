@@ -1,5 +1,8 @@
 #include "utility.h"
-#define BLOCK_SIZE 512
+#define BLOCK_WIDTH 32
+#ifndef __CUDACC__  
+    #define __CUDACC__
+#endif
 
 cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 
@@ -13,11 +16,38 @@ cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
 //		V (Cr) Sample Period	2	2
 
 __global__ void yuv2nv(unsigned char * y_in,unsigned char * u_in,unsigned char * v_in, 
-	unsigned char * y_out,unsigned char * u_out,unsigned char * v_out, int imgSize){
-		
-		
+	unsigned char * y_out,unsigned char * u_out,unsigned char * v_out, int img_width, int img_height){
+		__shared__ unsigned char sample[BLOCK_WIDTH][BLOCK_WIDTH][2];
 
+		int tx = threadIdx.x;
+		int ty = threadIdx.y;
 
+		int row = blockIdx.y * BLOCK_WIDTH + ty;
+		int col = blockIdx.x * BLOCK_WIDTH + tx;
+
+		unsigned int index = row * img_width + col;
+
+		//@@ TODO: need a better way to dispatch the memory access!
+		if(ty % 2 == 0 && tx % 2 == 0) {
+			if(row < img_height && col < img_width) {
+				sample[ty][tx][0] = u_in[index];
+				sample[ty][tx][1] = v_in[index];
+				sample[ty+1][tx+1][0] = u_in[index];
+				sample[ty+1][tx+1][1] = v_in[index];
+				sample[ty+1][tx][0] = u_in[index];
+				sample[ty+1][tx][1] = v_in[index];
+				sample[ty][tx+1][0] = u_in[index];
+				sample[ty][tx+1][1] = v_in[index];
+			} 
+		}
+
+		__syncthreads();
+
+		if(row < img_height && col < img_width) {
+			y_out[index] = y_in[index];
+			u_out[index] = sample[ty][tx][0];
+			v_out[index] = sample[ty][tx][1];
+		}
 }
 
 //@@ CUDA kernel
@@ -77,32 +107,51 @@ int main()
 	host_img_u = img_yuv.img_u;
 	host_img_v = img_yuv.img_v;
 
+	printf("\nTEST: %d\n", host_img_y[10240]);
+	printf("TEST: %d\n", host_img_u[10240]);
+	printf("TEST: %d\n", host_img_v[10240]);
 
-	cudaMalloc((void **) &device_img_y_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
-	cudaMalloc((void **) &device_img_u_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
-	cudaMalloc((void **) &device_img_v_in, img_yuv.h * img_yuv.w * sizeof(unsigned char));
 
-	cudaMalloc((void **) &device_img_y_out, img_yuv.h * img_yuv.w * sizeof(unsigned char));
-	cudaMalloc((void **) &device_img_u_out, img_yuv.h * img_yuv.w * sizeof(unsigned char));
-	cudaMalloc((void **) &device_img_v_out, img_yuv.h * img_yuv.w * sizeof(unsigned char));
+	myCudaCheck(cudaMalloc((void **) &device_img_y_in, img_yuv.h * img_yuv.w * sizeof(unsigned char)));
+	myCudaCheck(cudaMalloc((void **) &device_img_u_in, img_yuv.h * img_yuv.w * sizeof(unsigned char)));
+	myCudaCheck(cudaMalloc((void **) &device_img_v_in, img_yuv.h * img_yuv.w * sizeof(unsigned char)));
 
-	cudaMemcpy(device_img_y_in, host_img_y, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice);
-	cudaMemcpy(device_img_u_in, host_img_u, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice);
-	cudaMemcpy(device_img_v_in, host_img_v, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice);
+	myCudaCheck(cudaMalloc((void **) &device_img_y_out, img_yuv.h * img_yuv.w * sizeof(unsigned char)));
+	myCudaCheck(cudaMalloc((void **) &device_img_u_out, img_yuv.h * img_yuv.w * sizeof(unsigned char)));
+	myCudaCheck(cudaMalloc((void **) &device_img_v_out, img_yuv.h * img_yuv.w * sizeof(unsigned char)));
 
-	dim3 dimGrid((img_yuv.w - 1)/BLOCK_SIZE + 1, (img_yuv.h - 1)/BLOCK_SIZE + 1, 1);
-	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE, 1);
-	//cudaMalloc();
+	myCudaCheck(cudaMemcpy(device_img_y_in, host_img_y, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice));
+	myCudaCheck(cudaMemcpy(device_img_u_in, host_img_u, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice));
+	myCudaCheck(cudaMemcpy(device_img_v_in, host_img_v, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyHostToDevice));
+
+	dim3 dimGrid((img_yuv.w - 1)/BLOCK_WIDTH + 1, (img_yuv.w - 1)/BLOCK_WIDTH + 1, 1);
+	dim3 dimBlock(BLOCK_WIDTH, BLOCK_WIDTH, 1);
+
+	yuv2nv<<<dimGrid, dimBlock>>>(device_img_y_in, device_img_u_in, device_img_v_in, 
+								  device_img_y_out, device_img_u_out, device_img_v_out, 
+								  img_yuv.w, img_yuv.h);
+
+	// Check for any errors launching the kernel
+	cudaStatus = cudaGetLastError();
+	if (cudaStatus != cudaSuccess) {
+		printf("Subsampling kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+	}
 
 	cudaDeviceSynchronize();
 
-	cudaMemcpy(host_img_y, device_img_y_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost);
-	cudaMemcpy(host_img_u, device_img_u_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost);
-	cudaMemcpy(host_img_v, device_img_v_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost);
-
+	myCudaCheck(cudaMemcpy(host_img_y, device_img_y_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+	myCudaCheck(cudaMemcpy(host_img_u, device_img_u_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+	myCudaCheck(cudaMemcpy(host_img_v, device_img_v_out, img_yuv.h * img_yuv.w * sizeof(unsigned char), cudaMemcpyDeviceToHost));
 	end = clock();
 	printf("\nTime taken is: %d seconds %d milliseconds.\n", (end - start)/(CLOCKS_PER_SEC), (end - start)*1000/(CLOCKS_PER_SEC)%1000);
+	printf("\nRaw time: %ld\n", end - start);
 	// End of conversion and subsampling
+
+
+	printf("\nTEST: %d\n", img_yuv.img_y[10240]);
+	printf("TEST: %d\n", img_yuv.img_u[10240]);
+	printf("TEST: %d\n", img_yuv.img_v[10240]);
+
 
 	img_in = yuv2rgb(img_yuv);
 	write_ppm(img_in, "test_out.ppm");
@@ -115,10 +164,6 @@ int main()
 	cudaFree(device_img_v_out);
 
 	free_ppm(img_in);
-
-
-	printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-		c[0], c[1], c[2], c[3], c[4]);
 
 	// cudaDeviceReset must be called before exiting in order for profiling and
 	// tracing tools such as Nsight and Visual Profiler to show complete traces.
