@@ -35,6 +35,34 @@ __global__ void yuv2nv(unsigned char * y_in,unsigned char * u_in,unsigned char *
 		}
 }
 
+__host__ void yuv2nv_cpu(unsigned char * y_in,unsigned char * u_in,unsigned char * v_in, 
+		unsigned char * buf_out, int img_width, int img_height){
+
+			unsigned int index, uv_index;
+			unsigned int start_uv = img_width * img_height;
+
+			for(int i = 0; i < img_height; i++) {
+				for(int j = 0; j < img_width; j++) {
+					index = i*img_width + j;
+					buf_out[index] = y_in[index];
+					if(i % 2 == 0 && j % 2 == 0) {
+						uv_index = i/2 * img_width + j;
+						buf_out[start_uv + uv_index] = u_in[index];
+						buf_out[start_uv + uv_index + 1] = v_in[index];
+					}
+				}
+			}
+
+		//if(row < img_height && col < img_width) {
+		//	buf_out[index] = y_in[index];
+		//	if(tx % 2 == 0 && ty % 2 == 0) {
+		//		unsigned int uv_index = row/2 * img_width +  col;
+		//		buf_out[start_uv + uv_index] = u_in[index];
+		//		buf_out[start_uv + uv_index + 1] = v_in[index];
+		//	}
+		//}
+}
+
 //Convert RGB to YUV, all components in [0, 255]
 __global__ void rgb2yuv_cuda(unsigned char * img_r,unsigned char * img_g,unsigned char * img_b, 
 	unsigned char * img_y,unsigned char * img_u,unsigned char * img_v, int imgSize)
@@ -115,9 +143,21 @@ int main()
 	printf("\nRaw time: %ld\n", end - start);
 	// End of conversion and subsampling
 
-	// Real converted image in nv12 format 
 	write_yuv(img_nv, "nv_out.yuv");
 
+	free(img_nv.buf);
+	// Start of cpu subsampling
+	img_nv.buf = (unsigned char *)malloc((3 * img_nv.h * img_nv.w * sizeof(unsigned char) - 1)/2 + 1);
+	start = clock();
+	yuv2nv_cpu(host_img_y, host_img_u, host_img_v, img_nv.buf, img_yuv.w, img_yuv.h);
+	end = clock();
+	printf("\nTime taken (CPU) is: %d seconds %d milliseconds.\n", (end - start)/(CLOCKS_PER_SEC), (end - start)*1000/(CLOCKS_PER_SEC)%1000);
+	printf("\nRaw time: %ld\n", end - start);
+	// End of cpu subsampling
+
+	write_yuv(img_nv, "nv_out_cpu.yuv");
+
+	free(img_nv.buf);
 	cudaFree(device_img_y_in);
 	cudaFree(device_img_u_in);
 	cudaFree(device_img_v_in);
