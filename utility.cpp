@@ -137,6 +137,16 @@ __host__ void write_ppm(PPM_IMG img, const char * path){
     free(obuf);
 }
 
+__host__ void write_yuv(NV_IMG img, const char * path){
+    FILE * out_file;
+    
+    out_file = fopen(path, "wb");
+
+	printf("\nWriting .YUV.\n");
+    fwrite(img.buf, sizeof(char), (3*img.w*img.h - 1)/2 + 1, out_file);
+    fclose(out_file);
+}
+
 __host__ void free_ppm(PPM_IMG img)
 {
     free(img.img_r);
